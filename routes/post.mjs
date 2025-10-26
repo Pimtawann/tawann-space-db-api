@@ -1,10 +1,11 @@
 import { Router } from "express";
 import validatePostData from "../middleware/postValidation.mjs";
 import connectionPool from "../utils/db.mjs";
+import protectAdmin from "../middleware/protectAdmin.mjs";
 
 const postRouter = Router();
 
-postRouter.post("/", validatePostData, async (req, res) => {
+postRouter.post("/", [validatePostData, protectAdmin], async (req, res) => {
     const newPost = req.body;
 
     try {
@@ -27,7 +28,7 @@ postRouter.post("/", validatePostData, async (req, res) => {
     }
 
     return res.status(201).json({
-        message: "Created post sucessfully",
+        message: "Created post successfully",
     })
 })
 
@@ -143,7 +144,7 @@ postRouter.get("/:postId", async (req, res) => {
     }
 })
 
-postRouter.put("/:postId", validatePostData, async (req, res) => {
+postRouter.put("/:postId", [validatePostData, protectAdmin], async (req, res) => {
     const postIdFromClient = req.params.postId;
     const updatedPost = { ...req.body, date: new Date() }
 
@@ -172,7 +173,7 @@ postRouter.put("/:postId", validatePostData, async (req, res) => {
         );
 
         return res.status(200).json({
-            message: "Updated post sucessfully",
+            message: "Updated post successfully",
         });
         
     } catch {
@@ -182,7 +183,7 @@ postRouter.put("/:postId", validatePostData, async (req, res) => {
     }
 })
 
-postRouter.delete("/:postId", async (req, res) => {
+postRouter.delete("/:postId", protectAdmin, async (req, res) => {
     const postIdFromClient = req.params.postId;
 
     try {
@@ -199,7 +200,7 @@ postRouter.delete("/:postId", async (req, res) => {
     };
 
     return res.status(200).json({
-        message: "Deleted post sucessfully",
+        message: "Deleted post successfully",
     });
 
     } catch {
