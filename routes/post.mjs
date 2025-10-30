@@ -1,14 +1,45 @@
 import { Router } from "express";
-import validatePostData from "../middleware/postValidation.mjs";
 import connectionPool from "../utils/db.mjs";
 import protectAdmin from "../middleware/protectAdmin.mjs";
+import multer from "multer";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+);
 
 const postRouter = Router();
 
-postRouter.post("/", [validatePostData, protectAdmin], async (req, res) => {
-    const newPost = req.body;
+const multerUpload = multer({ storage: multer.memoryStorage() });
+
+const imageFileUpload = multerUpload.fields([
+    { name: "imageFile", maxCount: 1 },
+])
+
+postRouter.post("/", [imageFileUpload, protectAdmin], async (req, res) => {
 
     try {
+        const newPost = req.body;
+        const file = req.fields.imageFile[0]
+        const bucketName = "tawann-space";
+        const filePath = `posts/${Date.now()};`
+
+        const { data, error } = await supabase.storage
+            .from(bucketName)
+            .upload(filePath, file.buffer, {
+                contentType: file.mimetype,
+                upsert: false,
+            })
+        
+        if (error) {
+            throw error;
+        }
+
+        const {
+            data: { publicUrl },
+        } = supabase.storage.from(bucketName).getPublicUrl(data.path);
+
         await connectionPool.query(
             `INSERT INTO posts (title, image, category_id, description, content, status_id)
             VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -21,15 +52,15 @@ postRouter.post("/", [validatePostData, protectAdmin], async (req, res) => {
                 newPost.status_id,
             ]
         );
-    } catch {
+
+        return res.status(201).json({ message: "Created post successfully" })
+    } catch (err) {
+        console.error(err);
         return res.status(500).json({
             message: "Server could not create post because database connection",
-        })
+            error: err.message,
+        });
     }
-
-    return res.status(201).json({
-        message: "Created post successfully",
-    })
 })
 
 postRouter.get("/", async (req, res) => {
