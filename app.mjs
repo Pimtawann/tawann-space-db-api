@@ -9,7 +9,12 @@ import authRouter from "./routes/auth.mjs";
 const app = express();
 const port = process.env.PORT || 4001;
 
-app.use(cors());
+app.use(cors({
+  origin: ["http://localhost:5173", "https://tawann-space.vercel.app" ],
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  credentials: true
+}));
 app.use(express.json());
 app.use("/posts", postRouter);
 app.use("/auth", authRouter);
