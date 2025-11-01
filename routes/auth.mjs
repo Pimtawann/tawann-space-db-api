@@ -157,4 +157,9 @@ authRouter.put("/reset-password", async (req, res) => {
     }
 })
 
+authRouter.get("/categories", async (req, res) => {
+    const { rows } = await connectionPool.query("SELECT id, name FROM categories");
+    res.status(200).json({ categories: rows })
+})
+
 export default authRouter;
