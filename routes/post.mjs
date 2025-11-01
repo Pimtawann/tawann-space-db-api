@@ -22,6 +22,11 @@ postRouter.post("/", [imageFileUpload, protectAdmin], async (req, res) => {
   try {
     const newPost = req.body;
     const file = req.files.imageFile[0];
+    
+    if (!file) {
+        return res.status(400).json({ error: "Image file is required." });
+      }
+
     const bucketName = "tawann-space";
     const ext = file.mimetype.split("/")[1] || "bin";
     const filePath = `posts/${Date.now()}.${ext}`;
@@ -46,7 +51,7 @@ postRouter.post("/", [imageFileUpload, protectAdmin], async (req, res) => {
             VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         newPost.title,
-        newPost.image,
+        publicUrl,
         newPost.category_id,
         newPost.description,
         newPost.content,
