@@ -31,7 +31,7 @@ authRouter.post("/register", async (req, res) => {
 
         if (supabaseError) {
             if (supabaseError.code === "user_already_exists") {
-                return res.status(400).json({ error: "User with this email already exists"})
+                return res.status(400).json({ error: "Email is already taken, Please try another email."})
             }
 
             return res.status(400).json({ error: "Failed to create user. Please try again." })
@@ -151,6 +151,64 @@ authRouter.put("/reset-password", async (req, res) => {
         res.status(200).json({
             message: "Password updated successfully",
             user: data.user,
+        })
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" })
+    }
+})
+
+authRouter.put("/update-profile", async (req, res) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    const { name, username, profilePic } = req.body;
+
+    if (!token) {
+        return res.status(401).json({ error: "Unauthorized: Token missing" })
+    }
+
+    try {
+        const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+        if (userError) {
+            return res.status(401).json({ error: "Unauthorized: Invalid token" })
+        }
+
+        const userId = userData.user.id;
+
+        // Check if username is taken by another user
+        if (username) {
+            const usernameCheckQuery = `
+                SELECT * FROM users
+                WHERE username = $1 AND id != $2
+            `;
+            const { rows: existingUser } = await connectionPool.query(usernameCheckQuery, [username, userId]);
+
+            if (existingUser.length > 0) {
+                return res.status(400).json({ error: "This username is already taken" });
+            }
+        }
+
+        // Update user profile
+        const updateQuery = `
+            UPDATE users
+            SET name = COALESCE($1, name),
+                username = COALESCE($2, username),
+                profile_pic = COALESCE($3, profile_pic)
+            WHERE id = $4
+            RETURNING *;
+        `;
+
+        const values = [name || null, username || null, profilePic || null, userId];
+        const { rows } = await connectionPool.query(updateQuery, values);
+
+        res.status(200).json({
+            message: "Profile updated successfully",
+            user: {
+                id: rows[0].id,
+                name: rows[0].name,
+                username: rows[0].username,
+                profilePic: rows[0].profile_pic,
+                role: rows[0].role
+            }
         })
     } catch (error) {
         res.status(500).json({ error: "Internal server error" })
