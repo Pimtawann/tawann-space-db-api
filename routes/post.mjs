@@ -256,31 +256,107 @@ postRouter.delete("/:postId", protectAdmin, async (req, res) => {
 
 postRouter.post("/:postId/like", async (req, res) => {
   const postIdFromClient = req.params.postId;
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized: Token missing" });
+  }
 
   try {
-    const result = await connectionPool.query(
-      `UPDATE posts
-       SET likes_count = likes_count + 1
-       WHERE id = $1
-       RETURNING likes_count`,
-      [postIdFromClient]
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError) {
+      return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    }
+
+    const userId = userData.user.id;
+
+    const likeCheck = await connectionPool.query(
+      `SELECT * FROM post_likes WHERE post_id = $1 AND user_id = $2`,
+      [postIdFromClient, userId]
     );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        message: "Post not found",
-      });
+    let liked = false;
+    let likesCount = 0;
+
+    if (likeCheck.rows.length > 0) {
+      // User has already liked - remove like (unlike)
+      await connectionPool.query(
+        `DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2`,
+        [postIdFromClient, userId]
+      );
+
+      const result = await connectionPool.query(
+        `UPDATE posts
+         SET likes_count = GREATEST(likes_count - 1, 0)
+         WHERE id = $1
+         RETURNING likes_count`,
+        [postIdFromClient]
+      );
+
+      likesCount = result.rows[0].likes_count;
+      liked = false;
+    } else {
+      // User hasn't liked - add like
+      await connectionPool.query(
+        `INSERT INTO post_likes (post_id, user_id, created_at)
+         VALUES ($1, $2, NOW())`,
+        [postIdFromClient, userId]
+      );
+
+      const result = await connectionPool.query(
+        `UPDATE posts
+         SET likes_count = likes_count + 1
+         WHERE id = $1
+         RETURNING likes_count`,
+        [postIdFromClient]
+      );
+
+      likesCount = result.rows[0].likes_count;
+      liked = true;
     }
 
     return res.status(200).json({
-      message: "Post liked successfully",
-      likes_count: result.rows[0].likes_count,
+      message: liked ? "Post liked successfully" : "Post unliked successfully",
+      likes_count: likesCount,
+      liked: liked,
     });
   } catch (error) {
-    console.error("Error liking post:", error);
+    console.error("Error toggling like:", error);
     return res.status(500).json({
-      message: "Server could not like post because database connection",
+      message: "Server could not toggle like because database connection",
     });
+  }
+});
+
+postRouter.get("/:postId/liked", async (req, res) => {
+  const postIdFromClient = req.params.postId;
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if (!token) {
+    return res.status(200).json({ liked: false });
+  }
+
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError) {
+      return res.status(200).json({ liked: false });
+    }
+
+    const userId = userData.user.id;
+
+    const result = await connectionPool.query(
+      `SELECT * FROM post_likes WHERE post_id = $1 AND user_id = $2`,
+      [postIdFromClient, userId]
+    );
+
+    return res.status(200).json({
+      liked: result.rows.length > 0,
+    });
+  } catch (error) {
+    console.error("Error checking like status:", error);
+    return res.status(200).json({ liked: false });
   }
 });
 
