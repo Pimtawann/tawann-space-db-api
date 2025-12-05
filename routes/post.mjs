@@ -254,4 +254,109 @@ postRouter.delete("/:postId", protectAdmin, async (req, res) => {
   }
 });
 
+postRouter.post("/:postId/like", async (req, res) => {
+  const postIdFromClient = req.params.postId;
+
+  try {
+    const result = await connectionPool.query(
+      `UPDATE posts
+       SET likes_count = likes_count + 1
+       WHERE id = $1
+       RETURNING likes_count`,
+      [postIdFromClient]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        message: "Post not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Post liked successfully",
+      likes_count: result.rows[0].likes_count,
+    });
+  } catch (error) {
+    console.error("Error liking post:", error);
+    return res.status(500).json({
+      message: "Server could not like post because database connection",
+    });
+  }
+});
+
+postRouter.get("/:postId/comments", async (req, res) => {
+  const postIdFromClient = req.params.postId;
+
+  try {
+    const result = await connectionPool.query(
+      `SELECT comments.id, comments.comment_text, comments.created_at, users.username, users.profile_pic
+       FROM comments
+       INNER JOIN users ON comments.user_id = users.id
+       WHERE comments.post_id = $1
+       ORDER BY comments.created_at DESC`,
+      [postIdFromClient]
+    );
+
+    return res.status(200).json({
+      comments: result.rows,
+    });
+  } catch (error) {
+    console.error("Error fetching comments:", error);
+    return res.status(500).json({
+      message: "Server could not fetch comments because database connection",
+    });
+  }
+});
+
+postRouter.post("/:postId/comments", async (req, res) => {
+  const postIdFromClient = req.params.postId;
+  const { content } = req.body;
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized: Token missing" });
+  }
+
+  if (!content || !content.trim()) {
+    return res.status(400).json({ error: "Comment content is required" });
+  }
+
+  try {
+    // Verify user token
+    const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError) {
+      return res.status(401).json({ error: "Unauthorized: Invalid token" });
+    }
+
+    const userId = userData.user.id;
+
+    const result = await connectionPool.query(
+      `INSERT INTO comments (post_id, user_id, comment_text, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING id, comment_text, created_at`,
+      [postIdFromClient, userId, content.trim()]
+    );
+
+    const userInfo = await connectionPool.query(
+      `SELECT username, profile_pic FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    return res.status(201).json({
+      message: "Comment created successfully",
+      comment: {
+        ...result.rows[0],
+        username: userInfo.rows[0].username,
+        profile_pic: userInfo.rows[0].profile_pic,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating comment:", error);
+    return res.status(500).json({
+      message: "Server could not create comment because database connection",
+    });
+  }
+});
+
 export default postRouter;
