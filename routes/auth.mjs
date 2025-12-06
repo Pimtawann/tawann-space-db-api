@@ -297,4 +297,64 @@ authRouter.delete("/categories/:categoryId", protectAdmin, async (req, res) => {
     }
 })
 
+// Get notifications (likes and comments) for admin
+authRouter.get("/notifications", protectAdmin, async (req, res) => {
+    try {
+        const commentsQuery = `
+            SELECT 'comment' as type, comments.id, comments.comment_text as content,
+                   comments.created_at, users.username, users.profile_pic,
+                   posts.title as article_title, posts.id as post_id
+            FROM comments
+            INNER JOIN users ON comments.user_id = users.id
+            INNER JOIN posts ON comments.post_id = posts.id
+            ORDER BY comments.created_at DESC
+        `;
+
+        const likesQuery = `
+            SELECT 'like' as type, post_likes.created_at,
+                   users.username, users.profile_pic,
+                   posts.title as article_title, posts.id as post_id
+            FROM post_likes
+            INNER JOIN users ON post_likes.user_id = users.id
+            INNER JOIN posts ON post_likes.post_id = posts.id
+            ORDER BY post_likes.created_at DESC
+        `;
+
+        const [commentsResult, likesResult] = await Promise.all([
+            connectionPool.query(commentsQuery),
+            connectionPool.query(likesQuery)
+        ]);
+
+        // รวม notifications และเรียงตาม timestamp
+        const allNotifications = [
+            ...commentsResult.rows.map(row => ({
+                id: `comment-${row.id}`,
+                type: row.type,
+                userName: row.username,
+                userAvatar: row.profile_pic,
+                articleTitle: row.article_title,
+                content: row.content,
+                timestamp: row.created_at,
+                postId: row.post_id
+            })),
+            ...likesResult.rows.map((row, index) => ({
+                id: `like-${row.post_id}-${index}`,
+                type: row.type,
+                userName: row.username,
+                userAvatar: row.profile_pic,
+                articleTitle: row.article_title,
+                timestamp: row.created_at,
+                postId: row.post_id
+            }))
+        ];
+
+        allNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.status(200).json({ notifications: allNotifications });
+    } catch (error) {
+        console.error("Error fetching notifications:", error);
+        res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+})
+
 export default authRouter;
