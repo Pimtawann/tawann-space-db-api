@@ -300,6 +300,11 @@ authRouter.delete("/categories/:categoryId", protectAdmin, async (req, res) => {
 // Get notifications (likes and comments) for admin
 authRouter.get("/notifications", protectAdmin, async (req, res) => {
     try {
+        const page = Number(req.query.page) || 1;
+        const limit = 10;
+        const offset = (page - 1) * limit;
+
+        // Filter แค่ 30 วันล่าสุด
         const commentsQuery = `
             SELECT 'comment' as type, comments.id, comments.comment_text as content,
                    comments.created_at, users.username, users.profile_pic,
@@ -307,6 +312,7 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
             FROM comments
             INNER JOIN users ON comments.user_id = users.id
             INNER JOIN posts ON comments.post_id = posts.id
+            WHERE comments.created_at >= NOW() - INTERVAL '30 days'
             ORDER BY comments.created_at DESC
         `;
 
@@ -317,6 +323,7 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
             FROM post_likes
             INNER JOIN users ON post_likes.user_id = users.id
             INNER JOIN posts ON post_likes.post_id = posts.id
+            WHERE post_likes.created_at >= NOW() - INTERVAL '30 days'
             ORDER BY post_likes.created_at DESC
         `;
 
@@ -350,7 +357,17 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
 
         allNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        res.status(200).json({ notifications: allNotifications });
+        // Pagination
+        const totalNotifications = allNotifications.length;
+        const paginatedNotifications = allNotifications.slice(offset, offset + limit);
+
+        res.status(200).json({
+            notifications: paginatedNotifications,
+            totalNotifications,
+            totalPages: Math.ceil(totalNotifications / limit),
+            currentPage: page,
+            limit
+        });
     } catch (error) {
         console.error("Error fetching notifications:", error);
         res.status(500).json({ error: "Failed to fetch notifications" });
