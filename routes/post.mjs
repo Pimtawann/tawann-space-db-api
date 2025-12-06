@@ -162,7 +162,7 @@ postRouter.get("/:postId", async (req, res) => {
   try {
     const results = await connectionPool.query(
       `
-            SELECT posts.id, posts.image, categories.name AS category, posts.title, posts.description, posts.date, posts.content, statuses.status, posts.likes_count
+            SELECT posts.id, posts.image, categories.name AS category, posts.category_id, posts.title, posts.description, posts.date, posts.content, statuses.status, posts.status_id, posts.likes_count
             FROM posts
             INNER JOIN categories ON posts.category_id = categories.id
             INNER JOIN statuses ON posts.status_id = statuses.id
@@ -186,12 +186,38 @@ postRouter.get("/:postId", async (req, res) => {
 
 postRouter.put(
   "/:postId",
-  [validatePostData, protectAdmin],
+  [imageFileUpload, protectAdmin],
   async (req, res) => {
     const postIdFromClient = req.params.postId;
-    const updatedPost = { ...req.body, date: new Date() };
+    const updatedPost = req.body;
+    let imageUrl = updatedPost.image;
 
     try {
+      // If a new file is uploaded, upload it to Supabase storage
+      if (req.files && req.files.imageFile && req.files.imageFile[0]) {
+        const file = req.files.imageFile[0];
+        const bucketName = "tawann-space";
+        const ext = file.mimetype.split("/")[1] || "bin";
+        const filePath = `posts/${Date.now()}.${ext}`;
+
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .upload(filePath, file.buffer, {
+            contentType: file.mimetype,
+            upsert: false,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from(bucketName)
+          .getPublicUrl(data.path);
+
+        imageUrl = publicUrl;
+      }
+
       const results = await connectionPool.query(
         `
             UPDATE posts
@@ -207,21 +233,23 @@ postRouter.put(
         [
           postIdFromClient,
           updatedPost.title,
-          updatedPost.image,
+          imageUrl,
           updatedPost.category_id,
           updatedPost.description,
           updatedPost.content,
           updatedPost.status_id,
-          updatedPost.date,
+          new Date(),
         ]
       );
 
       return res.status(200).json({
         message: "Updated post successfully",
       });
-    } catch {
+    } catch (err) {
+      console.error(err);
       return res.status(500).json({
         message: "Server could not update post because database connection",
+        error: err.message,
       });
     }
   }
