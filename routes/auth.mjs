@@ -109,6 +109,7 @@ authRouter.get("/get-user", async (req,res) => {
             name: rows[0].name,
             role: rows[0].role,
             profilePic: rows[0].profile_pic,
+            bio: rows[0].bio,
         })
     } catch (error) {
         res.status(500).json({ error: "Internal server error"})
@@ -160,7 +161,7 @@ authRouter.put("/reset-password", async (req, res) => {
 
 authRouter.put("/update-profile", async (req, res) => {
     const token = req.headers.authorization?.split(" ")[1];
-    const { name, username, profilePic } = req.body;
+    const { name, username, profilePic, bio } = req.body;
 
     if (!token) {
         return res.status(401).json({ error: "Unauthorized: Token missing" })
@@ -193,12 +194,13 @@ authRouter.put("/update-profile", async (req, res) => {
             UPDATE users
             SET name = COALESCE($1, name),
                 username = COALESCE($2, username),
-                profile_pic = COALESCE($3, profile_pic)
-            WHERE id = $4
+                profile_pic = COALESCE($3, profile_pic),
+                bio = COALESCE($4, bio)
+            WHERE id = $5
             RETURNING *;
         `;
 
-        const values = [name || null, username || null, profilePic || null, userId];
+        const values = [name || null, username || null, profilePic || null, bio || null, userId];
         const { rows } = await connectionPool.query(updateQuery, values);
 
         res.status(200).json({
@@ -208,6 +210,7 @@ authRouter.put("/update-profile", async (req, res) => {
                 name: rows[0].name,
                 username: rows[0].username,
                 profilePic: rows[0].profile_pic,
+                bio: rows[0].bio,
                 role: rows[0].role
             }
         })
