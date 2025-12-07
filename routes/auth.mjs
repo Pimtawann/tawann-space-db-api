@@ -297,12 +297,44 @@ authRouter.delete("/categories/:categoryId", protectAdmin, async (req, res) => {
     }
 })
 
+// Mark notification as read
+authRouter.post("/notifications/read", protectAdmin, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { notificationId } = req.body;
+
+        if (!notificationId) {
+            return res.status(400).json({ error: "Notification ID is required" });
+        }
+
+        // Extract type from notificationId (e.g., "comment-123" -> "comment")
+        const notificationType = notificationId.split('-')[0];
+
+        // Insert or ignore if already exists
+        const query = `
+            INSERT INTO notification_reads (user_id, notification_type, notification_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, notification_id) DO NOTHING
+            RETURNING *;
+        `;
+
+        const values = [userId, notificationType, notificationId];
+        await connectionPool.query(query, values);
+
+        res.status(200).json({ message: "Notification marked as read" });
+    } catch (error) {
+        console.error("Error marking notification as read:", error);
+        res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+});
+
 // Get notifications (likes and comments) for admin
 authRouter.get("/notifications", protectAdmin, async (req, res) => {
     try {
         const page = Number(req.query.page) || 1;
         const limit = 10;
         const offset = (page - 1) * limit;
+        const userId = req.user.id; // From protectAdmin middleware
 
         // Filter แค่ 30 วันล่าสุด
         const commentsQuery = `
@@ -327,10 +359,21 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
             ORDER BY post_likes.created_at DESC
         `;
 
-        const [commentsResult, likesResult] = await Promise.all([
+        // Get read notifications for this user
+        const readNotificationsQuery = `
+            SELECT notification_id FROM notification_reads
+            WHERE user_id = $1
+        `;
+
+        const [commentsResult, likesResult, readNotificationsResult] = await Promise.all([
             connectionPool.query(commentsQuery),
-            connectionPool.query(likesQuery)
+            connectionPool.query(likesQuery),
+            connectionPool.query(readNotificationsQuery, [userId])
         ]);
+
+        const readNotificationIds = new Set(
+            readNotificationsResult.rows.map(row => row.notification_id)
+        );
 
         // รวม notifications และเรียงตาม timestamp
         const allNotifications = [
@@ -342,7 +385,8 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
                 articleTitle: row.article_title,
                 content: row.content,
                 timestamp: row.created_at,
-                postId: row.post_id
+                postId: row.post_id,
+                isRead: readNotificationIds.has(`comment-${row.id}`)
             })),
             ...likesResult.rows.map((row, index) => ({
                 id: `like-${row.post_id}-${index}`,
@@ -351,15 +395,19 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
                 userAvatar: row.profile_pic,
                 articleTitle: row.article_title,
                 timestamp: row.created_at,
-                postId: row.post_id
+                postId: row.post_id,
+                isRead: readNotificationIds.has(`like-${row.post_id}-${index}`)
             }))
         ];
 
         allNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
+        // Filter only unread notifications
+        const unreadNotifications = allNotifications.filter(notif => !notif.isRead);
+
         // Pagination
-        const totalNotifications = allNotifications.length;
-        const paginatedNotifications = allNotifications.slice(offset, offset + limit);
+        const totalNotifications = unreadNotifications.length;
+        const paginatedNotifications = unreadNotifications.slice(offset, offset + limit);
 
         res.status(200).json({
             notifications: paginatedNotifications,
