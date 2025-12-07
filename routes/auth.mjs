@@ -335,6 +335,7 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
         const limit = 10;
         const offset = (page - 1) * limit;
         const userId = req.user.id; // From protectAdmin middleware
+        const unreadOnly = req.query.unreadOnly === 'true';
 
         // Filter แค่ 30 วันล่าสุด
         const commentsQuery = `
@@ -402,12 +403,14 @@ authRouter.get("/notifications", protectAdmin, async (req, res) => {
 
         allNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        // Filter only unread notifications
-        const unreadNotifications = allNotifications.filter(notif => !notif.isRead);
+        // Filter unread notifications only if unreadOnly is true
+        const filteredNotifications = unreadOnly
+            ? allNotifications.filter(notif => !notif.isRead)
+            : allNotifications;
 
         // Pagination
-        const totalNotifications = unreadNotifications.length;
-        const paginatedNotifications = unreadNotifications.slice(offset, offset + limit);
+        const totalNotifications = filteredNotifications.length;
+        const paginatedNotifications = filteredNotifications.slice(offset, offset + limit);
 
         res.status(200).json({
             notifications: paginatedNotifications,
